@@ -1,0 +1,41 @@
+"use client";
+
+import { useState } from "react";
+
+export default function Home() {
+  const [name, setName] = useState("");
+  const [score, setScore] = useState("");
+
+  const saveScore = () => {
+    if (!name || !score) {
+      alert("이름이랑 점수 입력해");
+      return;
+    }
+
+    alert("저장됨!");
+    setName("");
+    setScore("");
+  };
+
+  return (
+    <div style={{ padding: "40px" }}>
+      <h1>줄넘기 기록 입력</h1>
+
+      <input
+        placeholder="이름"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        style={{ display: "block", marginBottom: "10px" }}
+      />
+
+      <input
+        placeholder="점수"
+        value={score}
+        onChange={(e) => setScore(e.target.value)}
+        style={{ display: "block", marginBottom: "10px" }}
+      />
+
+      <button onClick={saveScore}>기록 저장</button>
+    </div>
+  );
+}
