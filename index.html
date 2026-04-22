@@ -1,63 +1,21 @@
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import {
-    getFirestore,
-    collection,
-    addDoc,
-    getDocs,
-    query,
-    orderBy
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
-  const firebaseConfig = {
-    apiKey: "여기에 apiKey",
-    authDomain: "여기에 authDomain",
-    projectId: "여기에 projectId",
-    storageBucket: "여기에 storageBucket",
-    messagingSenderId: "여기에 messagingSenderId",
-    appId: "여기에 appId"
-  };
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDczG4H5M0owrhJr3cr_xa_SDiQIBVQgf0",
+  authDomain: "jump-score-94507.firebaseapp.com",
+  projectId: "jump-score-94507",
+  storageBucket: "jump-score-94507.firebasestorage.app",
+  messagingSenderId: "1075066204311",
+  appId: "1:1075066204311:web:e85a21cba52c4c6a35b9d2",
+  measurementId: "G-568GGG8JSH"
+};
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  window.saveScore = async function () {
-    const name = document.getElementById("name").value;
-    const score = document.getElementById("score").value;
-
-    if (!name || !score) {
-      alert("이름과 점수를 입력하세요");
-      return;
-    }
-
-    await addDoc(collection(db, "scores"), {
-      name: name,
-      score: Number(score),
-      createdAt: new Date()
-    });
-
-    document.getElementById("name").value = "";
-    document.getElementById("score").value = "";
-
-    renderScores();
-  };
-
-  async function renderScores() {
-    const q = query(collection(db, "scores"), orderBy("score", "desc"));
-    const querySnapshot = await getDocs(q);
-
-    const list = document.getElementById("list");
-    list.innerHTML = "";
-
-    let rank = 1;
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      const li = document.createElement("li");
-      li.textContent = `${rank}등 - ${data.name}: ${data.score}회`;
-      list.appendChild(li);
-      rank++;
-    });
-  }
-
-  renderScores();
-</script>
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
