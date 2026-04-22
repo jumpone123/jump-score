@@ -1,56 +1,63 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <title>점프 기록</title>
-</head>
-<body>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    query,
+    orderBy
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  <h1>줄넘기 기록 입력</h1>
+  const firebaseConfig = {
+    apiKey: "여기에 apiKey",
+    authDomain: "여기에 authDomain",
+    projectId: "여기에 projectId",
+    storageBucket: "여기에 storageBucket",
+    messagingSenderId: "여기에 messagingSenderId",
+    appId: "여기에 appId"
+  };
 
-  <input type="text" id="name" placeholder="이름">
-  <input type="number" id="score" placeholder="기록 (횟수)">
-  <button onclick="saveScore()">저장</button>
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
 
-  <h2>기록 순위</h2>
-  <ul id="list"></ul>
+  window.saveScore = async function () {
+    const name = document.getElementById("name").value;
+    const score = document.getElementById("score").value;
 
-  <script>
-    function saveScore() {
-      const name = document.getElementById('name').value;
-      const score = document.getElementById('score').value;
-
-      if (!name || !score) {
-        alert("이름과 기록 입력해!");
-        return;
-      }
-
-      let data = JSON.parse(localStorage.getItem("scores")) || [];
-
-      data.push({ name, score: Number(score) });
-
-      data.sort((a, b) => b.score - a.score);
-
-      localStorage.setItem("scores", JSON.stringify(data));
-
-      render();
+    if (!name || !score) {
+      alert("이름과 점수를 입력하세요");
+      return;
     }
 
-    function render() {
-      const list = document.getElementById("list");
-      list.innerHTML = "";
+    await addDoc(collection(db, "scores"), {
+      name: name,
+      score: Number(score),
+      createdAt: new Date()
+    });
 
-      let data = JSON.parse(localStorage.getItem("scores")) || [];
+    document.getElementById("name").value = "";
+    document.getElementById("score").value = "";
 
-      data.forEach((item, index) => {
-        const li = document.createElement("li");
-        li.innerText = `${index + 1}등 - ${item.name}: ${item.score}회`;
-        list.appendChild(li);
-      });
-    }
+    renderScores();
+  };
 
-    render();
-  </script>
+  async function renderScores() {
+    const q = query(collection(db, "scores"), orderBy("score", "desc"));
+    const querySnapshot = await getDocs(q);
 
-</body>
-</html>
+    const list = document.getElementById("list");
+    list.innerHTML = "";
+
+    let rank = 1;
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      const li = document.createElement("li");
+      li.textContent = `${rank}등 - ${data.name}: ${data.score}회`;
+      list.appendChild(li);
+      rank++;
+    });
+  }
+
+  renderScores();
+</script>
