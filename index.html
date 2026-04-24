@@ -1,18 +1,57 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <title>줄넘기 기록</title>
+<meta charset="UTF-8">
+<title>줄넘기 기록</title>
+
+<style>
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #f5f7fb;
+}
+
+h1 {
+  margin-top: 40px;
+}
+
+input {
+  padding: 10px;
+  margin: 5px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+
+button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #4CAF50;
+  color: white;
+  cursor: pointer;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  margin: 5px;
+  font-size: 18px;
+}
+</style>
+
 </head>
 <body>
 
-<h1>줄넘기 기록 입력</h1>
+<h1>🏆 줄넘기 기록</h1>
 
 <input id="name" placeholder="이름">
 <input id="score" type="number" placeholder="기록">
 <button onclick="save()">저장</button>
 
-<h2>기록 순위</h2>
+<h2>순위</h2>
 <ul id="list"></ul>
 
 <script>
@@ -33,10 +72,14 @@ function save() {
   const name = document.getElementById("name").value;
   const score = document.getElementById("score").value;
 
-  if(!name || !score) return alert("입력하세요");
+  if(!name || !score) {
+    alert("입력하세요");
+    return;
+  }
 
   scores.push({name, score:Number(score)});
   localStorage.setItem("scores", JSON.stringify(scores));
+
   render();
 }
 
