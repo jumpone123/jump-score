@@ -6,6 +6,7 @@ import {
   addDoc,
   getDocs,
   deleteDoc,
+  updateDoc,
   doc,
   query,
   orderBy,
@@ -18,10 +19,11 @@ type ScoreItem = {
   team: string;
   category: string;
   score: number;
-  point: number;
-  replay: boolean;
+  replayScore?: number | null;
   createdAt?: any;
 };
+
+const ADMIN_PASSWORD = "jumpone";
 
 const categories = [
   "30초 번갈아뛰기",
@@ -51,15 +53,25 @@ export default function Home() {
   const [team, setTeam] = useState("");
   const [score, setScore] = useState("");
   const [admin, setAdmin] = useState(false);
+  const [mode, setMode] = useState<"main" | "input">("main");
+  const [replayInputs, setReplayInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [siteUrl, setSiteUrl] = useState("");
 
   useEffect(() => {
     const url = new URL(window.location.href);
+    setSiteUrl(window.location.origin);
+
+    if (url.searchParams.get("mode") === "input") {
+      setMode("input");
+    }
+
     if (url.searchParams.get("admin") === "1") {
       const pw = prompt("관리자 비밀번호를 입력하세요");
-      if (pw === "jumpone") setAdmin(true);
-      else alert("관리자만 수정할 수 있습니다.");
+      if (pw === ADMIN_PASSWORD) setAdmin(true);
+      else alert("관리자만 접근 가능합니다.");
     }
+
     loadScores();
   }, []);
 
@@ -75,64 +87,99 @@ export default function Home() {
     setLoading(false);
   }
 
-  function calculateRanks(list: ScoreItem[]) {
-    const sorted = [...list].sort((a, b) => b.score - a.score);
+  function getRanking(list: ScoreItem[]) {
+    const sortedByMain = [...list].sort((a, b) => b.score - a.score);
 
-    return sorted.map((item, index) => {
-      const sameScore = sorted.filter((x) => x.score === item.score);
-      const rank = index + 1;
-      const replay = sameScore.length > 1 && rank <= 3;
-
-      return {
-        ...item,
-        rank,
-        point: pointsByRank[rank] ?? 0,
-        replay,
-      };
+    const groups: ScoreItem[][] = [];
+    sortedByMain.forEach((item) => {
+      const last = groups[groups.length - 1];
+      if (!last || last[0].score !== item.score) groups.push([item]);
+      else last.push(item);
     });
+
+    const finalList: any[] = [];
+
+    groups.forEach((group) => {
+      if (group.length === 1) {
+        finalList.push({ ...group[0], needsReplay: false });
+        return;
+      }
+
+      const allReplayDone = group.every(
+        (item) => item.replayScore !== null && item.replayScore !== undefined
+      );
+
+      if (allReplayDone) {
+        const replaySorted = [...group].sort(
+          (a, b) => Number(b.replayScore) - Number(a.replayScore)
+        );
+
+        const replayScoreCount: Record<number, number> = {};
+        replaySorted.forEach((item) => {
+          const r = Number(item.replayScore);
+          replayScoreCount[r] = (replayScoreCount[r] || 0) + 1;
+        });
+
+        replaySorted.forEach((item) => {
+          finalList.push({
+            ...item,
+            needsReplay: replayScoreCount[Number(item.replayScore)] > 1,
+          });
+        });
+      } else {
+        group.forEach((item) => {
+          finalList.push({ ...item, needsReplay: true });
+        });
+      }
+    });
+
+    return finalList.map((item, index) => ({
+      ...item,
+      rank: index + 1,
+      point: pointsByRank[index + 1] ?? 0,
+    }));
   }
 
   const categoryRankings = useMemo(() => {
-    const result: Record<string, ScoreItem[]> = {};
+    const result: Record<string, any[]> = {};
     categories.forEach((cat) => {
-      const filtered = scores.filter((s) => s.category === cat);
-      result[cat] = calculateRanks(filtered);
+      result[cat] = getRanking(scores.filter((s) => s.category === cat));
     });
     return result;
   }, [scores]);
 
   const teamRankings = useMemo(() => {
-    const teamMap: Record<string, number> = {};
+    const map: Record<string, number> = {};
 
     categories.forEach((cat) => {
-      categoryRankings[cat]?.forEach((item: any) => {
-        teamMap[item.team] = (teamMap[item.team] || 0) + item.point;
+      categoryRankings[cat].forEach((item) => {
+        if (!item.team) return;
+        map[item.team] = (map[item.team] || 0) + item.point;
       });
     });
 
-    return Object.entries(teamMap)
+    return Object.entries(map)
       .map(([team, point]) => ({ team, point }))
       .sort((a, b) => b.point - a.point);
   }, [categoryRankings]);
 
   async function saveScore() {
-    if (!admin) {
-      alert("기록 입력은 관리자만 가능합니다.");
+    if (!admin && mode !== "input") {
+      alert("기록 입력은 관리자 또는 모바일 입력 페이지에서만 가능합니다.");
       return;
     }
 
     if (!name || !team || !score) {
-      alert("이름, 소속팀, 기록을 모두 입력하세요.");
+      alert("종목, 이름, 소속팀, 기록을 모두 입력하세요.");
       return;
     }
 
     await addDoc(collection(db, "scores"), {
-      name,
-      team,
       category,
+      name: name.trim(),
+      team: team.trim(),
       score: Number(score),
-      point: 0,
-      replay: false,
+      replayScore: null,
       createdAt: new Date(),
     });
 
@@ -142,9 +189,24 @@ export default function Home() {
     loadScores();
   }
 
+  async function saveReplay(id?: string) {
+    if (!admin || !id) return alert("관리자만 가능합니다.");
+
+    const value = replayInputs[id];
+    if (!value) return alert("재경기 기록을 입력하세요.");
+
+    await updateDoc(doc(db, "scores", id), {
+      replayScore: Number(value),
+    });
+
+    setReplayInputs((prev) => ({ ...prev, [id]: "" }));
+    loadScores();
+  }
+
   async function deleteOne(id?: string) {
     if (!admin || !id) return alert("관리자만 삭제할 수 있습니다.");
     if (!confirm("이 기록을 삭제할까요?")) return;
+
     await deleteDoc(doc(db, "scores", id));
     loadScores();
   }
@@ -158,25 +220,47 @@ export default function Home() {
     loadScores();
   }
 
+  const inputPageUrl = `${siteUrl}?mode=input`;
+  const adminPageUrl = `${siteUrl}?admin=1`;
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-red-600 via-orange-500 to-red-700 p-4">
-      <div className="max-w-6xl mx-auto bg-white rounded-[32px] shadow-2xl overflow-hidden">
-        <header className="text-center p-8 bg-gradient-to-r from-white to-orange-50">
-          <h1 className="text-5xl font-black text-red-600 italic">JumpOne</h1>
-          <p className="mt-2 text-sm tracking-widest font-bold">
+      <div className="max-w-6xl mx-auto bg-white rounded-[36px] shadow-2xl overflow-hidden">
+        <header className="text-center px-6 py-10 bg-gradient-to-r from-white via-orange-50 to-white">
+          <h1 className="text-5xl md:text-7xl font-black italic text-red-600">
+            JumpOne
+          </h1>
+          <p className="mt-2 font-bold tracking-widest text-sm">
             최고를 향한 첫 번째 도전
           </p>
-          <h2 className="mt-6 text-4xl font-black">
+          <h2 className="mt-6 text-4xl md:text-5xl font-black">
             <span className="text-red-600">줄넘기 대회</span> 기록판
           </h2>
-          <p className="mt-2 text-gray-600">
+          <p className="mt-3 text-gray-600">
             종목별 기록을 입력하고 순위를 확인하세요!
           </p>
+
+          <div className="mt-6 flex justify-center gap-3 flex-wrap">
+            <a
+              href={adminPageUrl}
+              className="px-5 py-3 rounded-full bg-black text-white font-bold"
+            >
+              관리자 페이지
+            </a>
+            <a
+              href={inputPageUrl}
+              className="px-5 py-3 rounded-full bg-red-600 text-white font-bold"
+            >
+              모바일 입력 페이지
+            </a>
+          </div>
         </header>
 
-        {admin && (
+        {(admin || mode === "input") && (
           <section className="m-6 p-6 rounded-3xl shadow-lg border bg-white">
-            <h3 className="text-2xl font-black text-red-600 mb-4">기록 입력</h3>
+            <h3 className="text-2xl font-black text-red-600 mb-4">
+              ✅ 기록 입력
+            </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <select
@@ -213,30 +297,28 @@ export default function Home() {
 
               <button
                 onClick={saveScore}
-                className="bg-red-600 text-white rounded-xl font-black"
+                className="bg-red-600 text-white rounded-xl font-black p-3"
               >
                 저장하기
               </button>
             </div>
 
-            <button
-              onClick={deleteAll}
-              className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
-            >
-              전체 기록 삭제
-            </button>
-          </section>
-        )}
+            {admin && (
+              <>
+                <div className="mt-5 p-4 bg-orange-50 rounded-2xl text-sm">
+                  <p className="font-bold">📱 QR용 모바일 입력 주소</p>
+                  <p className="break-all">{inputPageUrl}</p>
+                </div>
 
-        {!admin && (
-          <div className="text-center my-4">
-            <a
-              href="?admin=1"
-              className="inline-block px-5 py-2 rounded-full bg-black text-white text-sm"
-            >
-              관리자 페이지
-            </a>
-          </div>
+                <button
+                  onClick={deleteAll}
+                  className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
+                >
+                  🗑 전체 기록 삭제
+                </button>
+              </>
+            )}
+          </section>
         )}
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-5 p-6">
@@ -247,47 +329,77 @@ export default function Home() {
               </h3>
 
               <div className="mt-4 space-y-3">
-                {categoryRankings[cat]?.length === 0 && (
+                {categoryRankings[cat].length === 0 && (
                   <p className="text-gray-400">아직 기록이 없습니다.</p>
                 )}
 
-                {categoryRankings[cat]?.slice(0, 8).map((item: any) => (
-                  <div
-                    key={item.id}
-                    className="flex justify-between items-center border-b pb-2"
-                  >
-                    <div>
-                      <span className="font-black mr-2">
-                        {item.rank === 1
-                          ? "🥇"
-                          : item.rank === 2
-                          ? "🥈"
-                          : item.rank === 3
-                          ? "🥉"
-                          : item.rank}
-                      </span>
-                      <span className="font-bold">{item.name}</span>
-                      {item.replay && (
-                        <span className="ml-2 text-xs text-red-600 font-black">
-                          재경기
-                        </span>
-                      )}
-                      <div className="text-xs text-gray-500">{item.team}</div>
-                    </div>
+                {categoryRankings[cat].slice(0, 8).map((item: any) => (
+                  <div key={item.id} className="border-b pb-3">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <div>
+                          <span className="font-black mr-2">
+                            {item.rank === 1
+                              ? "🥇"
+                              : item.rank === 2
+                              ? "🥈"
+                              : item.rank === 3
+                              ? "🥉"
+                              : item.rank}
+                          </span>
+                          <span className="font-bold">{item.name}</span>
+                          {item.needsReplay && (
+                            <span className="ml-2 text-xs text-red-600 font-black">
+                              재경기
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">{item.team}</div>
+                      </div>
 
-                    <div className="text-right">
-                      <div className="font-black">{item.score}회</div>
-                      <div className="text-xs text-orange-600">
-                        {item.point}pt
+                      <div className="text-right">
+                        <div className="font-black">{item.score}회</div>
+                        {item.replayScore !== null &&
+                          item.replayScore !== undefined && (
+                            <div className="text-xs text-blue-600">
+                              재경기 {item.replayScore}회
+                            </div>
+                          )}
+                        <div className="text-xs text-orange-600">
+                          {item.point}pt
+                        </div>
                       </div>
                     </div>
+
+                    {admin && item.needsReplay && (
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          className="border rounded-lg p-2 w-full"
+                          type="number"
+                          placeholder="재경기 기록"
+                          value={replayInputs[item.id] || ""}
+                          onChange={(e) =>
+                            setReplayInputs((prev) => ({
+                              ...prev,
+                              [item.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          onClick={() => saveReplay(item.id)}
+                          className="bg-orange-500 text-white px-3 rounded-lg font-bold"
+                        >
+                          저장
+                        </button>
+                      </div>
+                    )}
 
                     {admin && (
                       <button
                         onClick={() => deleteOne(item.id)}
-                        className="ml-2 text-red-500 text-sm"
+                        className="mt-2 text-red-500 text-sm font-bold"
                       >
-                        삭제
+                        개인 기록 삭제
                       </button>
                     )}
                   </div>
