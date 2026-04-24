@@ -24,7 +24,7 @@ type ScoreItem = {
 };
 
 type RankedItem = ScoreItem & {
-  displayRank: number;
+  rank: number;
   rankText: string;
   point: number;
   needsReplay: boolean;
@@ -55,21 +55,19 @@ const pointsByRank: Record<number, number> = {
 
 export default function Home() {
   const [scores, setScores] = useState<ScoreItem[]>([]);
+  const [admin, setAdmin] = useState(false);
+  const [siteUrl, setSiteUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const [category, setCategory] = useState(categories[0]);
   const [name, setName] = useState("");
   const [team, setTeam] = useState("");
   const [score, setScore] = useState("");
-  const [admin, setAdmin] = useState(false);
-  const [mode, setMode] = useState<"main" | "input">("main");
   const [replayInputs, setReplayInputs] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [siteUrl, setSiteUrl] = useState("");
 
   useEffect(() => {
     const url = new URL(window.location.href);
     setSiteUrl(window.location.origin);
-
-    if (url.searchParams.get("mode") === "input") setMode("input");
 
     if (url.searchParams.get("admin") === "1") {
       const pw = prompt("관리자 비밀번호를 입력하세요");
@@ -84,32 +82,34 @@ export default function Home() {
     setLoading(true);
     const q = query(collection(db, "scores"), orderBy("score", "desc"));
     const snap = await getDocs(q);
+
     const data = snap.docs.map((d) => ({
       id: d.id,
       ...(d.data() as ScoreItem),
     }));
+
     setScores(data);
     setLoading(false);
   }
 
   function getRanking(list: ScoreItem[]): RankedItem[] {
-    const sortedByMain = [...list].sort((a, b) => b.score - a.score);
+    const sorted = [...list].sort((a, b) => b.score - a.score);
     const groups: ScoreItem[][] = [];
 
-    sortedByMain.forEach((item) => {
+    sorted.forEach((item) => {
       const last = groups[groups.length - 1];
       if (!last || last[0].score !== item.score) groups.push([item]);
       else last.push(item);
     });
 
-    const finalList: RankedItem[] = [];
+    const result: RankedItem[] = [];
     let currentRank = 1;
 
     groups.forEach((group) => {
       if (group.length === 1) {
-        finalList.push({
+        result.push({
           ...group[0],
-          displayRank: currentRank,
+          rank: currentRank,
           rankText: `${currentRank}위`,
           point: pointsByRank[currentRank] ?? 0,
           needsReplay: false,
@@ -124,9 +124,9 @@ export default function Home() {
 
       if (!allReplayDone) {
         group.forEach((item) => {
-          finalList.push({
+          result.push({
             ...item,
-            displayRank: currentRank,
+            rank: currentRank,
             rankText: `공동 ${currentRank}위`,
             point: pointsByRank[currentRank] ?? 0,
             needsReplay: true,
@@ -141,19 +141,19 @@ export default function Home() {
       );
 
       let replayRank = currentRank;
-      let index = 0;
+      let i = 0;
 
-      while (index < replaySorted.length) {
-        const baseReplayScore = Number(replaySorted[index].replayScore);
+      while (i < replaySorted.length) {
+        const replayValue = Number(replaySorted[i].replayScore);
         const sameReplay = replaySorted.filter(
-          (x) => Number(x.replayScore) === baseReplayScore
+          (x) => Number(x.replayScore) === replayValue
         );
 
         sameReplay.forEach((item) => {
           const stillTie = sameReplay.length > 1;
-          finalList.push({
+          result.push({
             ...item,
-            displayRank: replayRank,
+            rank: replayRank,
             rankText: stillTie ? `공동 ${replayRank}위` : `${replayRank}위`,
             point: pointsByRank[replayRank] ?? 0,
             needsReplay: stillTie,
@@ -161,13 +161,13 @@ export default function Home() {
         });
 
         replayRank += sameReplay.length;
-        index += sameReplay.length;
+        i += sameReplay.length;
       }
 
       currentRank += group.length;
     });
 
-    return finalList;
+    return result;
   }
 
   const categoryRankings = useMemo(() => {
@@ -194,8 +194,8 @@ export default function Home() {
   }, [categoryRankings]);
 
   async function saveScore() {
-    if (!admin && mode !== "input") {
-      alert("기록 입력은 관리자 또는 모바일 입력 페이지에서만 가능합니다.");
+    if (!admin) {
+      alert("관리자만 기록을 입력할 수 있습니다.");
       return;
     }
 
@@ -219,9 +219,7 @@ export default function Home() {
     loadScores();
   }
 
-  function handleEnter(
-    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>
-  ) {
+  function handleEnter(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
       saveScore();
@@ -306,13 +304,12 @@ export default function Home() {
 
   function rankIcon(item: RankedItem) {
     if (item.needsReplay) return item.rankText;
-    if (item.displayRank === 1) return "🥇";
-    if (item.displayRank === 2) return "🥈";
-    if (item.displayRank === 3) return "🥉";
-    return `${item.displayRank}위`;
+    if (item.rank === 1) return "🥇";
+    if (item.rank === 2) return "🥈";
+    if (item.rank === 3) return "🥉";
+    return item.rankText;
   }
 
-  const inputPageUrl = `${siteUrl}?mode=input`;
   const adminPageUrl = `${siteUrl}?admin=1`;
 
   return (
@@ -329,7 +326,7 @@ export default function Home() {
             <span className="text-red-600">줄넘기 대회</span> 기록판
           </h2>
           <p className="mt-3 text-gray-600">
-            종목별 기록을 입력하고 순위를 확인하세요!
+            종목별 기록을 확인하고 결과를 다운로드하세요!
           </p>
 
           <div className="mt-6 flex justify-center gap-3 flex-wrap print:hidden">
@@ -339,18 +336,14 @@ export default function Home() {
             >
               관리자 페이지
             </a>
-            <a
-              href={inputPageUrl}
-              className="px-5 py-3 rounded-full bg-red-600 text-white font-bold"
-            >
-              모바일 입력 페이지
-            </a>
+
             <button
               onClick={() => window.print()}
               className="px-5 py-3 rounded-full bg-orange-500 text-white font-bold"
             >
               결과 인쇄
             </button>
+
             <button
               onClick={downloadExcelCsv}
               className="px-5 py-3 rounded-full bg-green-600 text-white font-bold"
@@ -360,10 +353,10 @@ export default function Home() {
           </div>
         </header>
 
-        {(admin || mode === "input") && (
+        {admin && (
           <section className="m-6 p-6 rounded-3xl shadow-lg border bg-white print:hidden">
             <h3 className="text-2xl font-black text-red-600 mb-4">
-              ✅ 기록 입력
+              ✅ 관리자 기록 입력
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
@@ -371,7 +364,6 @@ export default function Home() {
                 className="border rounded-xl p-3"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                onKeyDown={handleEnter}
               >
                 {categories.map((cat) => (
                   <option key={cat}>{cat}</option>
@@ -411,21 +403,12 @@ export default function Home() {
               </button>
             </div>
 
-            {admin && (
-              <>
-                <div className="mt-5 p-4 bg-orange-50 rounded-2xl text-sm">
-                  <p className="font-bold">📱 QR용 모바일 입력 주소</p>
-                  <p className="break-all">{inputPageUrl}</p>
-                </div>
-
-                <button
-                  onClick={deleteAll}
-                  className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
-                >
-                  🗑 전체 기록 삭제
-                </button>
-              </>
-            )}
+            <button
+              onClick={deleteAll}
+              className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
+            >
+              🗑 전체 기록 삭제
+            </button>
           </section>
         )}
 
@@ -539,7 +522,7 @@ export default function Home() {
           ))}
         </section>
 
-        <footer className="bg-red-600 text-white text-center p-6 font-bold">
+        <footer className="bg-red-600 text-white text-center p-6 font-bold print:hidden">
           © 2024 JumpOne. All rights reserved.
         </footer>
 
