@@ -23,6 +23,12 @@ type ScoreItem = {
   createdAt?: any;
 };
 
+type RankedItem = ScoreItem & {
+  displayRank: number;
+  point: number;
+  needsReplay: boolean;
+};
+
 const ADMIN_PASSWORD = "jumpone";
 
 const categories = [
@@ -62,9 +68,7 @@ export default function Home() {
     const url = new URL(window.location.href);
     setSiteUrl(window.location.origin);
 
-    if (url.searchParams.get("mode") === "input") {
-      setMode("input");
-    }
+    if (url.searchParams.get("mode") === "input") setMode("input");
 
     if (url.searchParams.get("admin") === "1") {
       const pw = prompt("관리자 비밀번호를 입력하세요");
@@ -87,61 +91,81 @@ export default function Home() {
     setLoading(false);
   }
 
-  function getRanking(list: ScoreItem[]) {
+  function getRanking(list: ScoreItem[]): RankedItem[] {
     const sortedByMain = [...list].sort((a, b) => b.score - a.score);
-
     const groups: ScoreItem[][] = [];
+
     sortedByMain.forEach((item) => {
       const last = groups[groups.length - 1];
       if (!last || last[0].score !== item.score) groups.push([item]);
       else last.push(item);
     });
 
-    const finalList: any[] = [];
+    const finalList: RankedItem[] = [];
+    let currentRank = 1;
 
     groups.forEach((group) => {
       if (group.length === 1) {
-        finalList.push({ ...group[0], needsReplay: false });
+        finalList.push({
+          ...group[0],
+          displayRank: currentRank,
+          point: pointsByRank[currentRank] ?? 0,
+          needsReplay: false,
+        });
+        currentRank += 1;
         return;
       }
 
       const allReplayDone = group.every(
-        (item) => item.replayScore !== null && item.replayScore !== undefined
+        (x) => x.replayScore !== null && x.replayScore !== undefined
       );
 
-      if (allReplayDone) {
-        const replaySorted = [...group].sort(
-          (a, b) => Number(b.replayScore) - Number(a.replayScore)
-        );
-
-        const replayScoreCount: Record<number, number> = {};
-        replaySorted.forEach((item) => {
-          const r = Number(item.replayScore);
-          replayScoreCount[r] = (replayScoreCount[r] || 0) + 1;
-        });
-
-        replaySorted.forEach((item) => {
+      if (!allReplayDone) {
+        group.forEach((item) => {
           finalList.push({
             ...item,
-            needsReplay: replayScoreCount[Number(item.replayScore)] > 1,
+            displayRank: currentRank,
+            point: pointsByRank[currentRank] ?? 0,
+            needsReplay: true,
           });
         });
-      } else {
-        group.forEach((item) => {
-          finalList.push({ ...item, needsReplay: true });
-        });
+        currentRank += group.length;
+        return;
       }
+
+      const replaySorted = [...group].sort(
+        (a, b) => Number(b.replayScore) - Number(a.replayScore)
+      );
+
+      let replayRank = currentRank;
+      let index = 0;
+
+      while (index < replaySorted.length) {
+        const sameReplay = replaySorted.filter(
+          (x) => Number(x.replayScore) === Number(replaySorted[index].replayScore)
+        );
+
+        sameReplay.forEach((item) => {
+          finalList.push({
+            ...item,
+            displayRank: replayRank,
+            point: pointsByRank[replayRank] ?? 0,
+            needsReplay: sameReplay.length > 1,
+          });
+        });
+
+        replayRank += sameReplay.length;
+        index += sameReplay.length;
+      }
+
+      currentRank += group.length;
     });
 
-    return finalList.map((item, index) => ({
-      ...item,
-      rank: index + 1,
-      point: pointsByRank[index + 1] ?? 0,
-    }));
+    return finalList;
   }
 
   const categoryRankings = useMemo(() => {
-    const result: Record<string, any[]> = {};
+    const result: Record<string, RankedItem[]> = {};
     categories.forEach((cat) => {
       result[cat] = getRanking(scores.filter((s) => s.category === cat));
     });
@@ -170,7 +194,7 @@ export default function Home() {
     }
 
     if (!name || !team || !score) {
-      alert("종목, 이름, 소속팀, 기록을 모두 입력하세요.");
+      alert("이름, 소속팀, 기록을 모두 입력하세요.");
       return;
     }
 
@@ -187,6 +211,10 @@ export default function Home() {
     setTeam("");
     setScore("");
     loadScores();
+  }
+
+  function handleEnter(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") saveScore();
   }
 
   async function saveReplay(id?: string) {
@@ -220,12 +248,57 @@ export default function Home() {
     loadScores();
   }
 
+  function downloadExcelCsv() {
+    const rows = [
+      ["종목", "순위", "이름", "소속팀", "원기록", "재경기기록", "포인트"],
+    ];
+
+    categories.forEach((cat) => {
+      categoryRankings[cat].forEach((item) => {
+        rows.push([
+          cat,
+          `${item.displayRank}위`,
+          item.name,
+          item.team,
+          `${item.score}`,
+          item.replayScore ?? "",
+          `${item.point}`,
+        ]);
+      });
+    });
+
+    rows.push([]);
+    rows.push(["팀별 랭킹"]);
+    rows.push(["순위", "팀명", "포인트"]);
+
+    teamRankings.forEach((t, i) => {
+      rows.push([`${i + 1}위`, t.team, `${t.point}`]);
+    });
+
+    const csv = rows
+      .map((row) =>
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "줄넘기_대회_기록.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const inputPageUrl = `${siteUrl}?mode=input`;
   const adminPageUrl = `${siteUrl}?admin=1`;
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-red-600 via-orange-500 to-red-700 p-4">
-      <div className="max-w-6xl mx-auto bg-white rounded-[36px] shadow-2xl overflow-hidden">
+    <main className="min-h-screen bg-gradient-to-br from-red-600 via-orange-500 to-red-700 p-4 print:bg-white">
+      <div className="max-w-6xl mx-auto bg-white rounded-[36px] shadow-2xl overflow-hidden print:shadow-none print:rounded-none">
         <header className="text-center px-6 py-10 bg-gradient-to-r from-white via-orange-50 to-white">
           <h1 className="text-5xl md:text-7xl font-black italic text-red-600">
             JumpOne
@@ -240,7 +313,7 @@ export default function Home() {
             종목별 기록을 입력하고 순위를 확인하세요!
           </p>
 
-          <div className="mt-6 flex justify-center gap-3 flex-wrap">
+          <div className="mt-6 flex justify-center gap-3 flex-wrap print:hidden">
             <a
               href={adminPageUrl}
               className="px-5 py-3 rounded-full bg-black text-white font-bold"
@@ -253,11 +326,23 @@ export default function Home() {
             >
               모바일 입력 페이지
             </a>
+            <button
+              onClick={() => window.print()}
+              className="px-5 py-3 rounded-full bg-orange-500 text-white font-bold"
+            >
+              결과 인쇄
+            </button>
+            <button
+              onClick={downloadExcelCsv}
+              className="px-5 py-3 rounded-full bg-green-600 text-white font-bold"
+            >
+              엑셀 다운로드
+            </button>
           </div>
         </header>
 
         {(admin || mode === "input") && (
-          <section className="m-6 p-6 rounded-3xl shadow-lg border bg-white">
+          <section className="m-6 p-6 rounded-3xl shadow-lg border bg-white print:hidden">
             <h3 className="text-2xl font-black text-red-600 mb-4">
               ✅ 기록 입력
             </h3>
@@ -278,6 +363,7 @@ export default function Home() {
                 placeholder="이름"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onKeyDown={handleEnter}
               />
 
               <input
@@ -285,6 +371,7 @@ export default function Home() {
                 placeholder="소속팀"
                 value={team}
                 onChange={(e) => setTeam(e.target.value)}
+                onKeyDown={handleEnter}
               />
 
               <input
@@ -293,6 +380,7 @@ export default function Home() {
                 type="number"
                 value={score}
                 onChange={(e) => setScore(e.target.value)}
+                onKeyDown={handleEnter}
               />
 
               <button
@@ -333,21 +421,23 @@ export default function Home() {
                   <p className="text-gray-400">아직 기록이 없습니다.</p>
                 )}
 
-                {categoryRankings[cat].slice(0, 8).map((item: any) => (
+                {categoryRankings[cat].slice(0, 8).map((item) => (
                   <div key={item.id} className="border-b pb-3">
                     <div className="flex justify-between items-start gap-2">
                       <div>
                         <div>
                           <span className="font-black mr-2">
-                            {item.rank === 1
+                            {item.displayRank === 1
                               ? "🥇"
-                              : item.rank === 2
+                              : item.displayRank === 2
                               ? "🥈"
-                              : item.rank === 3
+                              : item.displayRank === 3
                               ? "🥉"
-                              : item.rank}
+                              : item.displayRank}
                           </span>
-                          <span className="font-bold">{item.name}</span>
+                          <span className="font-bold">
+                            {item.name}
+                          </span>
                           {item.needsReplay && (
                             <span className="ml-2 text-xs text-red-600 font-black">
                               재경기
@@ -372,18 +462,21 @@ export default function Home() {
                     </div>
 
                     {admin && item.needsReplay && (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex gap-2 print:hidden">
                         <input
                           className="border rounded-lg p-2 w-full"
                           type="number"
                           placeholder="재경기 기록"
-                          value={replayInputs[item.id] || ""}
+                          value={replayInputs[item.id || ""] || ""}
                           onChange={(e) =>
                             setReplayInputs((prev) => ({
                               ...prev,
-                              [item.id]: e.target.value,
+                              [item.id || ""]: e.target.value,
                             }))
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveReplay(item.id);
+                          }}
                         />
                         <button
                           onClick={() => saveReplay(item.id)}
@@ -397,7 +490,7 @@ export default function Home() {
                     {admin && (
                       <button
                         onClick={() => deleteOne(item.id)}
-                        className="mt-2 text-red-500 text-sm font-bold"
+                        className="mt-2 text-red-500 text-sm font-bold print:hidden"
                       >
                         개인 기록 삭제
                       </button>
@@ -436,7 +529,7 @@ export default function Home() {
         </footer>
 
         {loading && (
-          <div className="fixed bottom-5 right-5 bg-black text-white px-4 py-2 rounded-xl">
+          <div className="fixed bottom-5 right-5 bg-black text-white px-4 py-2 rounded-xl print:hidden">
             불러오는 중...
           </div>
         )}
