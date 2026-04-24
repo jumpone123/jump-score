@@ -10,6 +10,8 @@ import {
   doc,
   query,
   orderBy,
+  onSnapshot,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -31,6 +33,7 @@ type RankedItem = ScoreItem & {
 };
 
 const ADMIN_PASSWORD = "jumpone";
+const STORAGE_KEY = "jumpone_scores_backup";
 
 const categories = [
   "30초 번갈아뛰기",
@@ -63,7 +66,9 @@ export default function Home() {
   const [name, setName] = useState("");
   const [team, setTeam] = useState("");
   const [score, setScore] = useState("");
+
   const [replayInputs, setReplayInputs] = useState<Record<string, string>>({});
+  const [editInputs, setEditInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -75,21 +80,53 @@ export default function Home() {
       else alert("관리자만 접근 가능합니다.");
     }
 
-    loadScores();
+    const backup = localStorage.getItem(STORAGE_KEY);
+    if (backup) {
+      try {
+        setScores(JSON.parse(backup));
+      } catch {}
+    }
+
+    const q = query(collection(db, "scores"), orderBy("score", "desc"));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as ScoreItem),
+        }));
+
+        setScores(data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      },
+      async () => {
+        await loadScores();
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
   async function loadScores() {
     setLoading(true);
-    const q = query(collection(db, "scores"), orderBy("score", "desc"));
-    const snap = await getDocs(q);
+    try {
+      const q = query(collection(db, "scores"), orderBy("score", "desc"));
+      const snap = await getDocs(q);
 
-    const data = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as ScoreItem),
-    }));
+      const data = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as ScoreItem),
+      }));
 
-    setScores(data);
-    setLoading(false);
+      setScores(data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      const backup = localStorage.getItem(STORAGE_KEY);
+      if (backup) setScores(JSON.parse(backup));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function getRanking(list: ScoreItem[]): RankedItem[] {
@@ -212,13 +249,12 @@ export default function Home() {
       team: team.trim(),
       score: Number(score),
       replayScore: null,
-      createdAt: new Date(),
+      createdAt: serverTimestamp(),
     });
 
     setName("");
     setTeam("");
     setScore("");
-    loadScores();
   }
 
   function handleEnter(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -239,7 +275,20 @@ export default function Home() {
     });
 
     setReplayInputs((prev) => ({ ...prev, [id]: "" }));
-    loadScores();
+  }
+
+  async function editScore(id?: string) {
+    if (!admin || !id) return alert("관리자만 가능합니다.");
+
+    const value = editInputs[id];
+    if (!value) return alert("수정할 기록을 입력하세요.");
+
+    await updateDoc(doc(db, "scores", id), {
+      score: Number(value),
+      replayScore: null,
+    });
+
+    setEditInputs((prev) => ({ ...prev, [id]: "" }));
   }
 
   async function deleteOne(id?: string) {
@@ -247,7 +296,6 @@ export default function Home() {
     if (!confirm("이 기록을 삭제할까요?")) return;
 
     await deleteDoc(doc(db, "scores", id));
-    loadScores();
   }
 
   async function deleteAll() {
@@ -256,11 +304,10 @@ export default function Home() {
 
     const snap = await getDocs(collection(db, "scores"));
     await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, "scores", d.id))));
-    loadScores();
   }
 
   function downloadExcelCsv() {
-    const rows = [
+    const rows: string[][] = [
       ["종목", "순위", "이름", "소속팀", "원기록", "재경기기록", "포인트"],
     ];
 
@@ -271,19 +318,19 @@ export default function Home() {
           item.rankText,
           item.name,
           item.team,
-          `${item.score}`,
-          item.replayScore ? "":
-          `${item.point}`,
+          String(item.score),
+          item.replayScore == null ? "" : String(item.replayScore),
+          String(item.point),
         ]);
       });
     });
 
-    rows.push([]);
-    rows.push(["팀별 랭킹"]);
-    rows.push(["순위", "팀명", "포인트"]);
+    rows.push(["", "", "", "", "", "", ""]);
+    rows.push(["팀별 랭킹", "", "", "", "", "", ""]);
+    rows.push(["순위", "팀명", "포인트", "", "", "", ""]);
 
     teamRankings.forEach((t, i) => {
-      rows.push([`${i + 1}위`, t.team, `${t.point}`]);
+      rows.push([`${i + 1}위`, t.team, String(t.point), "", "", "", ""]);
     });
 
     const csv = rows
@@ -471,43 +518,73 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {admin && item.needsReplay && (
-                      <div className="mt-3 flex gap-2 print:hidden">
-                        <input
-                          className="border rounded-lg p-2 w-full"
-                          type="number"
-                          placeholder="재경기 기록"
-                          value={replayInputs[item.id || ""] || ""}
-                          onChange={(e) =>
-                            setReplayInputs((prev) => ({
-                              ...prev,
-                              [item.id || ""]: e.target.value,
-                            }))
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              saveReplay(item.id);
+                    {admin && (
+                      <div className="mt-3 space-y-2 print:hidden">
+                        {item.needsReplay && (
+                          <div className="flex gap-2">
+                            <input
+                              className="border rounded-lg p-2 w-full"
+                              type="number"
+                              placeholder="재경기 기록"
+                              value={replayInputs[item.id || ""] || ""}
+                              onChange={(e) =>
+                                setReplayInputs((prev) => ({
+                                  ...prev,
+                                  [item.id || ""]: e.target.value,
+                                }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  saveReplay(item.id);
+                                }
+                              }}
+                            />
+
+                            <button
+                              onClick={() => saveReplay(item.id)}
+                              className="bg-orange-500 text-white px-3 rounded-lg font-bold"
+                            >
+                              재경기 저장
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2">
+                          <input
+                            className="border rounded-lg p-2 w-full"
+                            type="number"
+                            placeholder="기록 수정"
+                            value={editInputs[item.id || ""] || ""}
+                            onChange={(e) =>
+                              setEditInputs((prev) => ({
+                                ...prev,
+                                [item.id || ""]: e.target.value,
+                              }))
                             }
-                          }}
-                        />
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                editScore(item.id);
+                              }
+                            }}
+                          />
+
+                          <button
+                            onClick={() => editScore(item.id)}
+                            className="bg-blue-600 text-white px-3 rounded-lg font-bold"
+                          >
+                            수정
+                          </button>
+                        </div>
 
                         <button
-                          onClick={() => saveReplay(item.id)}
-                          className="bg-orange-500 text-white px-3 rounded-lg font-bold"
+                          onClick={() => deleteOne(item.id)}
+                          className="text-red-500 text-sm font-bold"
                         >
-                          저장
+                          개인 기록 삭제
                         </button>
                       </div>
-                    )}
-
-                    {admin && (
-                      <button
-                        onClick={() => deleteOne(item.id)}
-                        className="mt-2 text-red-500 text-sm font-bold print:hidden"
-                      >
-                        개인 기록 삭제
-                      </button>
                     )}
                   </div>
                 ))}
