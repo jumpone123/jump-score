@@ -59,7 +59,6 @@ const pointsByRank: Record<number, number> = {
 export default function Home() {
   const [scores, setScores] = useState<ScoreItem[]>([]);
   const [admin, setAdmin] = useState(false);
-  const [siteUrl, setSiteUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [category, setCategory] = useState(categories[0]);
@@ -67,12 +66,12 @@ export default function Home() {
   const [team, setTeam] = useState("");
   const [score, setScore] = useState("");
 
+  const [searchText, setSearchText] = useState("");
   const [replayInputs, setReplayInputs] = useState<Record<string, string>>({});
   const [editInputs, setEditInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    setSiteUrl(window.location.origin);
 
     if (url.searchParams.get("admin") === "1") {
       const pw = prompt("관리자 비밀번호를 입력하세요");
@@ -128,6 +127,20 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  const filteredScores = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+
+    if (!keyword) return scores;
+
+    return scores.filter((item) => {
+      return (
+        item.name.toLowerCase().includes(keyword) ||
+        item.team.toLowerCase().includes(keyword) ||
+        item.category.toLowerCase().includes(keyword)
+      );
+    });
+  }, [scores, searchText]);
 
   function getRanking(list: ScoreItem[]): RankedItem[] {
     const sorted = [...list].sort((a, b) => b.score - a.score);
@@ -212,10 +225,12 @@ export default function Home() {
   const categoryRankings = useMemo(() => {
     const result: Record<string, RankedItem[]> = {};
     categories.forEach((cat) => {
-      result[cat] = getRanking(scores.filter((s) => s.category === cat));
+      result[cat] = getRanking(
+        filteredScores.filter((s) => s.category === cat)
+      );
     });
     return result;
-  }, [scores]);
+  }, [filteredScores]);
 
   const teamRankings = useMemo(() => {
     const map: Record<string, number> = {};
@@ -359,8 +374,6 @@ export default function Home() {
     return item.rankText;
   }
 
-  const adminPageUrl = `${siteUrl}?admin=1`;
-
   return (
     <main className="min-h-screen bg-gradient-to-br from-red-600 via-orange-500 to-red-700 p-4 print:bg-white">
       <div className="max-w-6xl mx-auto bg-white rounded-[36px] shadow-2xl overflow-hidden print:shadow-none print:rounded-none">
@@ -382,13 +395,6 @@ export default function Home() {
           </p>
 
           <div className="mt-6 flex justify-center gap-3 flex-wrap print:hidden">
-            <a
-              href={adminPageUrl}
-              className="px-5 py-3 rounded-full bg-black text-white font-bold"
-            >
-              관리자 페이지
-            </a>
-
             <button
               onClick={() => window.print()}
               className="px-5 py-3 rounded-full bg-orange-500 text-white font-bold"
@@ -404,6 +410,18 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        <section className="m-6 p-5 rounded-3xl bg-orange-50 border print:hidden">
+          <h3 className="text-xl font-black text-orange-600 mb-3">
+            🔍 기록 검색
+          </h3>
+          <input
+            className="w-full border rounded-xl p-4"
+            placeholder="이름, 소속팀, 종목을 검색하세요"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </section>
 
         {admin && (
           <section className="m-6 p-6 rounded-3xl shadow-lg border bg-white print:hidden">
@@ -455,11 +473,6 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mt-4 text-sm bg-orange-50 rounded-2xl p-4">
-              <p className="font-bold">관리자 QR 주소</p>
-              <p className="break-all">{adminPageUrl}</p>
-            </div>
-
             <button
               onClick={deleteAll}
               className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
@@ -478,7 +491,7 @@ export default function Home() {
 
               <div className="mt-4 space-y-3">
                 {categoryRankings[cat].length === 0 && (
-                  <p className="text-gray-400">아직 기록이 없습니다.</p>
+                  <p className="text-gray-400">검색 결과 또는 기록이 없습니다.</p>
                 )}
 
                 {categoryRankings[cat].slice(0, 8).map((item) => (
