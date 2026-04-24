@@ -272,7 +272,7 @@ export default function Home() {
           item.name,
           item.team,
           `${item.score}`,
-          item.replayScore ?? "",
+          item.replayScore ? "":
           `${item.point}`,
         ]);
       });
