@@ -25,6 +25,7 @@ type ScoreItem = {
 
 type RankedItem = ScoreItem & {
   displayRank: number;
+  rankText: string;
   point: number;
   needsReplay: boolean;
 };
@@ -109,6 +110,7 @@ export default function Home() {
         finalList.push({
           ...group[0],
           displayRank: currentRank,
+          rankText: `${currentRank}위`,
           point: pointsByRank[currentRank] ?? 0,
           needsReplay: false,
         });
@@ -125,6 +127,7 @@ export default function Home() {
           finalList.push({
             ...item,
             displayRank: currentRank,
+            rankText: `공동 ${currentRank}위`,
             point: pointsByRank[currentRank] ?? 0,
             needsReplay: true,
           });
@@ -141,16 +144,19 @@ export default function Home() {
       let index = 0;
 
       while (index < replaySorted.length) {
+        const baseReplayScore = Number(replaySorted[index].replayScore);
         const sameReplay = replaySorted.filter(
-          (x) => Number(x.replayScore) === Number(replaySorted[index].replayScore)
+          (x) => Number(x.replayScore) === baseReplayScore
         );
 
         sameReplay.forEach((item) => {
+          const stillTie = sameReplay.length > 1;
           finalList.push({
             ...item,
             displayRank: replayRank,
+            rankText: stillTie ? `공동 ${replayRank}위` : `${replayRank}위`,
             point: pointsByRank[replayRank] ?? 0,
-            needsReplay: sameReplay.length > 1,
+            needsReplay: stillTie,
           });
         });
 
@@ -213,8 +219,13 @@ export default function Home() {
     loadScores();
   }
 
-  function handleEnter(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") saveScore();
+  function handleEnter(
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>
+  ) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveScore();
+    }
   }
 
   async function saveReplay(id?: string) {
@@ -257,7 +268,7 @@ export default function Home() {
       categoryRankings[cat].forEach((item) => {
         rows.push([
           cat,
-          `${item.displayRank}위`,
+          item.rankText,
           item.name,
           item.team,
           `${item.score}`,
@@ -291,6 +302,14 @@ export default function Home() {
     a.download = "줄넘기_대회_기록.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function rankIcon(item: RankedItem) {
+    if (item.needsReplay) return item.rankText;
+    if (item.displayRank === 1) return "🥇";
+    if (item.displayRank === 2) return "🥈";
+    if (item.displayRank === 3) return "🥉";
+    return `${item.displayRank}위`;
   }
 
   const inputPageUrl = `${siteUrl}?mode=input`;
@@ -352,6 +371,7 @@ export default function Home() {
                 className="border rounded-xl p-3"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
+                onKeyDown={handleEnter}
               >
                 {categories.map((cat) => (
                   <option key={cat}>{cat}</option>
@@ -427,17 +447,9 @@ export default function Home() {
                       <div>
                         <div>
                           <span className="font-black mr-2">
-                            {item.displayRank === 1
-                              ? "🥇"
-                              : item.displayRank === 2
-                              ? "🥈"
-                              : item.displayRank === 3
-                              ? "🥉"
-                              : item.displayRank}
+                            {rankIcon(item)}
                           </span>
-                          <span className="font-bold">
-                            {item.name}
-                          </span>
+                          <span className="font-bold">{item.name}</span>
                           {item.needsReplay && (
                             <span className="ml-2 text-xs text-red-600 font-black">
                               재경기
@@ -475,7 +487,10 @@ export default function Home() {
                             }))
                           }
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") saveReplay(item.id);
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              saveReplay(item.id);
+                            }
                           }}
                         />
                         <button
