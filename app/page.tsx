@@ -132,6 +132,7 @@ export default function Home() {
             needsReplay: true,
           });
         });
+
         currentRank += group.length;
         return;
       }
@@ -151,6 +152,7 @@ export default function Home() {
 
         sameReplay.forEach((item) => {
           const stillTie = sameReplay.length > 1;
+
           result.push({
             ...item,
             rank: replayRank,
@@ -319,12 +321,15 @@ export default function Home() {
           <h1 className="text-5xl md:text-7xl font-black italic text-red-600">
             JumpOne
           </h1>
+
           <p className="mt-2 font-bold tracking-widest text-sm">
             최고를 향한 첫 번째 도전
           </p>
+
           <h2 className="mt-6 text-4xl md:text-5xl font-black">
             <span className="text-red-600">줄넘기 대회</span> 기록판
           </h2>
+
           <p className="mt-3 text-gray-600">
             종목별 기록을 확인하고 결과를 다운로드하세요!
           </p>
@@ -403,6 +408,11 @@ export default function Home() {
               </button>
             </div>
 
+            <div className="mt-4 text-sm bg-orange-50 rounded-2xl p-4">
+              <p className="font-bold">관리자 QR 주소</p>
+              <p className="break-all">{adminPageUrl}</p>
+            </div>
+
             <button
               onClick={deleteAll}
               className="mt-4 w-full border border-red-300 text-red-600 rounded-xl p-3 font-bold"
@@ -432,24 +442,29 @@ export default function Home() {
                           <span className="font-black mr-2">
                             {rankIcon(item)}
                           </span>
+
                           <span className="font-bold">{item.name}</span>
+
                           {item.needsReplay && (
                             <span className="ml-2 text-xs text-red-600 font-black">
                               재경기
                             </span>
                           )}
                         </div>
+
                         <div className="text-xs text-gray-500">{item.team}</div>
                       </div>
 
                       <div className="text-right">
                         <div className="font-black">{item.score}회</div>
+
                         {item.replayScore !== null &&
                           item.replayScore !== undefined && (
                             <div className="text-xs text-blue-600">
                               재경기 {item.replayScore}회
                             </div>
                           )}
+
                         <div className="text-xs text-orange-600">
                           {item.point}pt
                         </div>
@@ -476,6 +491,7 @@ export default function Home() {
                             }
                           }}
                         />
+
                         <button
                           onClick={() => saveReplay(item.id)}
                           className="bg-orange-500 text-white px-3 rounded-lg font-bold"
@@ -517,6 +533,7 @@ export default function Home() {
               <span className="font-black">
                 {index + 1}위 - {team.team}
               </span>
+
               <span className="font-black text-red-600">{team.point}pt</span>
             </div>
           ))}
